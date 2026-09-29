@@ -4,23 +4,40 @@
 
 #include <curl/curl.h>
 
+/**
+ * @brief Handles data received from a libcurl request.
+ *
+ * Appends the received data to the string specified by the user pointer.
+ *
+ * @param contents Pointer to the received data.
+ * @param size Size of each data element in bytes.
+ * @param nmemb Number of received data elements.
+ * @param userp Pointer to the destination std::string.
+ *
+ * @return Number of bytes successfully processed.
+ */
 static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp)
 {
     size_t total = size * nmemb;
 
-    static_cast<std::string *>(userp)->append(static_cast<char *>(contents), total);
+    std::string *response = static_cast<std::string *>(userp);
+    char        *data     = static_cast<char *>(contents);
+
+    response->append(data, total);
 
     return total;
 }
 
 int main(void)
 {
+    // Check discord token
     const char *token = std::getenv("DISCORD_TOKEN");
 
     if (!token) {
         std::cerr << "DISCORD_TOKEN is not set\n";
         return 1;
     }
+
 
     CURL       *curl;
     CURLcode    res;
