@@ -9,10 +9,14 @@
 
 #include <sys/select.h>
 
+#include "activity.h"
+#include "gateway.h"
+
 using json  = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 
 enum gateway_intent {
+    GATEWAY_INTENT_GUILD_MEMBERS   = 1 << 1,
     GATEWAY_INTENT_GUILD_PRESENCES = 1 << 8,
     GATEWAY_INTENT_GUILD_MESSAGES  = 1 << 9,
     GATEWAY_INTENT_MESSAGE_CONTENT = 1 << 15,
@@ -108,8 +112,8 @@ static CURLcode gateway_send(CURL *curl, const json &payload)
 
 static CURLcode gateway_send_identify(CURL *curl, const char *token)
 {
-    const int intents = GATEWAY_INTENT_GUILD_PRESENCES | GATEWAY_INTENT_GUILD_MESSAGES |
-                        GATEWAY_INTENT_MESSAGE_CONTENT;
+    const int intents = GATEWAY_INTENT_GUILD_MEMBERS | GATEWAY_INTENT_GUILD_PRESENCES |
+                        GATEWAY_INTENT_GUILD_MESSAGES | GATEWAY_INTENT_MESSAGE_CONTENT;
 
     json payload = {
         {"op", GATEWAY_OP_IDENTIFY},
@@ -169,6 +173,9 @@ static void gateway_handle_dispatch(const json &event, struct gateway_state *sta
 
         if (data.contains("resume_gateway_url"))
             state->resume_gateway_url = data["resume_gateway_url"];
+    }
+    if (type == "PRESENCE_UPDATE") {
+        activity_handle_presence(event["d"]);
     }
 
     std::cout << "EVENT: " << type << '\n';

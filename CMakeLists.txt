@@ -11,6 +11,7 @@ find_package(nlohmann_json REQUIRED)
 add_executable(discord-screen-timer
     src/main.cpp
     src/gateway.cpp
+    src/activity.cpp
 )
 
 target_include_directories(discord-screen-timer PRIVATE
