@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <random>
 #include <string>
 
 #include <curl/curl.h>
@@ -9,12 +10,31 @@
 #include <sys/select.h>
 
 using json  = nlohmann::json;
-using Clock = std::chrono::steady_clock;
+using clock = std::chrono::steady_clock;
 
-enum GatewayIntent {
-    GUILD_PRESENCES = 1 << 8,
-    GUILD_MESSAGES  = 1 << 9,
-    MESSAGE_CONTENT = 1 << 15,
+enum gateway_intent {
+    GATEWAY_INTENT_GUILD_PRESENCES = 1 << 8,
+    GATEWAY_INTENT_GUILD_MESSAGES  = 1 << 9,
+    GATEWAY_INTENT_MESSAGE_CONTENT = 1 << 15,
+};
+
+enum gateway_opcode {
+    GATEWAY_OP_DISPATCH        = 0,
+    GATEWAY_OP_HEARTBEAT       = 1,
+    GATEWAY_OP_IDENTIFY        = 2,
+    GATEWAY_OP_RESUME          = 6,
+    GATEWAY_OP_RECONNECT       = 7,
+    GATEWAY_OP_INVALID_SESSION = 9,
+    GATEWAY_OP_HELLO           = 10,
+    GATEWAY_OP_HEARTBEAT_ACK   = 11,
+};
+
+struct gateway_state {
+    int         sequence;
+    int         heartbeat_interval;
+    bool        heartbeat_ack;
+    std::string session_id;
+    std::string resume_gateway_url;
 };
 
 static int wait_socket(curl_socket_t sockfd, long timeout_ms)
@@ -32,7 +52,7 @@ static int wait_socket(curl_socket_t sockfd, long timeout_ms)
     return select(sockfd + 1, &readfds, nullptr, nullptr, &timeout);
 }
 
-static CURLcode recv_message(CURL *curl, curl_socket_t sockfd, std::string &message)
+static CURLcode gateway_recv(CURL *curl, curl_socket_t sockfd, std::string &message)
 {
     char                        buffer[4096];
     size_t                      received;
@@ -65,20 +85,34 @@ static CURLcode recv_message(CURL *curl, curl_socket_t sockfd, std::string &mess
     return CURLE_OK;
 }
 
-static CURLcode send_json(CURL *curl, const json &payload)
+static CURLcode gateway_send(CURL *curl, const json &payload)
 {
-    std::string data = payload.dump();
-    size_t      sent = 0;
+    std::string data   = payload.dump();
+    size_t      offset = 0;
 
-    return curl_ws_send(curl, data.data(), data.size(), &sent, 0, CURLWS_TEXT);
+    while (offset < data.size()) {
+        size_t sent = 0;
+
+        CURLcode res =
+            curl_ws_send(curl, data.data() + offset, data.size() - offset, &sent, 0, CURLWS_TEXT);
+
+        if (res == CURLE_AGAIN) continue;
+
+        if (res != CURLE_OK) return res;
+
+        offset += sent;
+    }
+
+    return CURLE_OK;
 }
 
-static CURLcode send_identify(CURL *curl, const char *token)
+static CURLcode gateway_send_identify(CURL *curl, const char *token)
 {
-    const int intents = GUILD_PRESENCES | GUILD_MESSAGES | MESSAGE_CONTENT;
+    const int intents = GATEWAY_INTENT_GUILD_PRESENCES | GATEWAY_INTENT_GUILD_MESSAGES |
+                        GATEWAY_INTENT_MESSAGE_CONTENT;
 
     json payload = {
-        {"op", 2},
+        {"op", GATEWAY_OP_IDENTIFY},
         {"d",
          {
              {"token", token},
@@ -92,17 +126,62 @@ static CURLcode send_identify(CURL *curl, const char *token)
          }},
     };
 
-    return send_json(curl, payload);
+    return gateway_send(curl, payload);
 }
 
-static CURLcode send_heartbeat(CURL *curl, int sequence)
+static CURLcode gateway_send_heartbeat(CURL *curl, const struct gateway_state *state)
 {
+    json sequence = nullptr;
+
+    if (state->sequence >= 0) sequence = state->sequence;
+
     json payload = {
-        {"op", 1},
+        {"op", GATEWAY_OP_HEARTBEAT},
         {"d", sequence},
     };
 
-    return send_json(curl, payload);
+    return gateway_send(curl, payload);
+}
+
+static int gateway_handle_hello(const json &event, struct gateway_state *state)
+{
+    if (!event.contains("op") || event["op"] != GATEWAY_OP_HELLO) return -1;
+
+    if (!event.contains("d") || !event["d"].contains("heartbeat_interval")) return -1;
+
+    state->heartbeat_interval = event["d"]["heartbeat_interval"];
+
+    return 0;
+}
+
+static void gateway_handle_dispatch(const json &event, struct gateway_state *state)
+{
+    if (event.contains("s") && !event["s"].is_null()) state->sequence = event["s"];
+
+    if (!event.contains("t") || event["t"].is_null()) return;
+
+    std::string type = event["t"];
+
+    if (type == "READY") {
+        const json &data = event["d"];
+
+        if (data.contains("session_id")) state->session_id = data["session_id"];
+
+        if (data.contains("resume_gateway_url"))
+            state->resume_gateway_url = data["resume_gateway_url"];
+    }
+
+    std::cout << "EVENT: " << type << '\n';
+}
+
+static long gateway_heartbeat_jitter(int interval)
+{
+    std::random_device device;
+    std::mt19937       generator(device());
+
+    std::uniform_int_distribution<long> distribution(0, interval);
+
+    return distribution(generator);
 }
 
 static int gateway_connect(const char *token)
@@ -110,6 +189,12 @@ static int gateway_connect(const char *token)
     CURL       *curl;
     CURLcode    res;
     std::string message;
+
+    struct gateway_state state;
+
+    state.sequence           = -1;
+    state.heartbeat_interval = 0;
+    state.heartbeat_ack      = true;
 
     curl = curl_easy_init();
 
@@ -131,8 +216,6 @@ static int gateway_connect(const char *token)
         return 1;
     }
 
-    std::cout << "Connected to Discord Gateway\n";
-
     curl_socket_t sockfd;
 
     res = curl_easy_getinfo(curl, CURLINFO_ACTIVESOCKET, &sockfd);
@@ -144,10 +227,12 @@ static int gateway_connect(const char *token)
         return 1;
     }
 
+    std::cout << "Connected to Discord Gateway\n";
+
     /*
      * Receive HELLO (OP 10).
      */
-    res = recv_message(curl, sockfd, message);
+    res = gateway_recv(curl, sockfd, message);
 
     if (res != CURLE_OK) {
         std::cerr << "Failed to receive HELLO: " << curl_easy_strerror(res) << '\n';
@@ -167,21 +252,26 @@ static int gateway_connect(const char *token)
         return 1;
     }
 
-    if (hello["op"] != 10) {
-        std::cerr << "Expected HELLO event\n";
+    if (gateway_handle_hello(hello, &state) < 0) {
+        std::cerr << "Invalid HELLO event\n";
 
         curl_easy_cleanup(curl);
         return 1;
     }
 
-    int heartbeat_interval = hello["d"]["heartbeat_interval"];
+    std::cout << "Heartbeat interval: " << state.heartbeat_interval << " ms\n";
 
-    std::cout << "Heartbeat interval: " << heartbeat_interval << " ms\n";
+    /*
+     * Discord requires the first heartbeat to use a random jitter.
+     */
+    long jitter = gateway_heartbeat_jitter(state.heartbeat_interval);
+
+    auto next_heartbeat = clock::now() + std::chrono::milliseconds(jitter);
 
     /*
      * Send IDENTIFY (OP 2).
      */
-    res = send_identify(curl, token);
+    res = gateway_send_identify(curl, token);
 
     if (res != CURLE_OK) {
         std::cerr << "Failed to send IDENTIFY: " << curl_easy_strerror(res) << '\n';
@@ -192,15 +282,11 @@ static int gateway_connect(const char *token)
 
     std::cout << "IDENTIFY sent\n";
 
-    int sequence = 0;
-
-    auto next_heartbeat = Clock::now() + std::chrono::milliseconds(heartbeat_interval);
-
     /*
      * Gateway event loop.
      */
     while (true) {
-        auto now = Clock::now();
+        auto now = clock::now();
 
         auto remaining =
             std::chrono::duration_cast<std::chrono::milliseconds>(next_heartbeat - now);
@@ -217,12 +303,12 @@ static int gateway_connect(const char *token)
         }
 
         /*
-         * Receive Gateway event.
+         * Gateway data is available.
          */
         if (ret > 0) {
             message.clear();
 
-            res = recv_message(curl, sockfd, message);
+            res = gateway_recv(curl, sockfd, message);
 
             if (res != CURLE_OK) {
                 std::cerr << "Gateway receive failed: " << curl_easy_strerror(res) << '\n';
@@ -238,37 +324,81 @@ static int gateway_connect(const char *token)
                 continue;
             }
 
-            if (event.contains("s") && !event["s"].is_null()) sequence = event["s"];
+            if (!event.contains("op")) continue;
 
             int opcode = event["op"];
 
-            if (opcode == 11) {
+            switch (opcode) {
+            case GATEWAY_OP_DISPATCH:
+                gateway_handle_dispatch(event, &state);
+                break;
+
+            case GATEWAY_OP_HEARTBEAT:
+                res = gateway_send_heartbeat(curl, &state);
+
+                if (res != CURLE_OK) {
+                    std::cerr << "Failed to respond to heartbeat request\n";
+                    goto cleanup;
+                }
+
+                state.heartbeat_ack = false;
+
+                std::cout << "HEARTBEAT sent (requested)\n";
+                break;
+
+            case GATEWAY_OP_RECONNECT:
+                std::cout << "RECONNECT requested\n";
+                goto cleanup;
+
+            case GATEWAY_OP_INVALID_SESSION:
+                std::cout << "INVALID SESSION\n";
+                goto cleanup;
+
+            case GATEWAY_OP_HEARTBEAT_ACK:
+                state.heartbeat_ack = true;
+
                 std::cout << "HEARTBEAT ACK\n";
-            } else if (opcode == 0) {
-                std::cout << "EVENT: " << event["t"] << '\n';
+                break;
+
+            default:
+                break;
             }
         }
 
         /*
-         * Send HEARTBEAT (OP 1).
+         * Send the scheduled heartbeat.
          */
-        now = Clock::now();
+        now = clock::now();
 
         if (now >= next_heartbeat) {
-            res = send_heartbeat(curl, sequence);
+            if (!state.heartbeat_ack) {
+                std::cerr << "Heartbeat ACK timeout\n";
+                break;
+            }
+
+            res = gateway_send_heartbeat(curl, &state);
 
             if (res != CURLE_OK) {
                 std::cerr << "Failed to send HEARTBEAT: " << curl_easy_strerror(res) << '\n';
                 break;
             }
 
-            std::cout << "HEARTBEAT sent"
-                      << " (sequence: " << sequence << ")\n";
+            state.heartbeat_ack = false;
 
-            next_heartbeat = now + std::chrono::milliseconds(heartbeat_interval);
+            std::cout << "HEARTBEAT sent (sequence: ";
+
+            if (state.sequence >= 0)
+                std::cout << state.sequence;
+            else
+                std::cout << "null";
+
+            std::cout << ")\n";
+
+            next_heartbeat = now + std::chrono::milliseconds(state.heartbeat_interval);
         }
     }
 
+cleanup:
     curl_easy_cleanup(curl);
 
     return 0;
