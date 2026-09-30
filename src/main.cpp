@@ -1,10 +1,15 @@
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
 
 #include <sys/select.h>
+
+using json  = nlohmann::json;
+using Clock = std::chrono::steady_clock;
 
 enum GatewayIntent {
     GUILD_PRESENCES = 1 << 8,
@@ -60,37 +65,46 @@ static CURLcode recv_message(CURL *curl, curl_socket_t sockfd, std::string &mess
     return CURLE_OK;
 }
 
+static CURLcode send_json(CURL *curl, const json &payload)
+{
+    std::string data = payload.dump();
+    size_t      sent = 0;
+
+    return curl_ws_send(curl, data.data(), data.size(), &sent, 0, CURLWS_TEXT);
+}
+
 static CURLcode send_identify(CURL *curl, const char *token)
 {
     const int intents = GUILD_PRESENCES | GUILD_MESSAGES | MESSAGE_CONTENT;
 
-    std::string payload = "{"
-                          "\"op\":2,"
-                          "\"d\":{"
-                          "\"token\":\"" +
-                          std::string(token) +
-                          "\","
-                          "\"intents\":" +
-                          std::to_string(intents) +
-                          ","
-                          "\"properties\":{"
-                          "\"os\":\"linux\","
-                          "\"browser\":\"discord-screen-timer\","
-                          "\"device\":\"discord-screen-timer\""
-                          "}"
-                          "}"
-                          "}";
+    json payload = {
+        {"op", 2},
+        {"d",
+         {
+             {"token", token},
+             {"intents", intents},
+             {"properties",
+              {
+                  {"os", "linux"},
+                  {"browser", "discord-screen-timer"},
+                  {"device", "discord-screen-timer"},
+              }},
+         }},
+    };
 
-    size_t sent = 0;
-
-    return curl_ws_send(curl, payload.data(), payload.size(), &sent, 0, CURLWS_TEXT);
+    return send_json(curl, payload);
 }
 
-/**
- * @brief Connects to the Discord Gateway and receives the HELLO event.
- *
- * @return Zero on success, non-zero on failure.
- */
+static CURLcode send_heartbeat(CURL *curl, int sequence)
+{
+    json payload = {
+        {"op", 1},
+        {"d", sequence},
+    };
+
+    return send_json(curl, payload);
+}
+
 static int gateway_connect(const char *token)
 {
     CURL       *curl;
@@ -106,10 +120,6 @@ static int gateway_connect(const char *token)
 
     curl_easy_setopt(curl, CURLOPT_URL, "wss://gateway.discord.gg/?v=10&encoding=json");
 
-    /*
-     * Perform the WebSocket handshake and return control to the
-     * application after the connection has been established.
-     */
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
 
     res = curl_easy_perform(curl);
@@ -146,7 +156,27 @@ static int gateway_connect(const char *token)
         return 1;
     }
 
-    std::cout << "HELLO: " << message << '\n';
+    json hello;
+
+    try {
+        hello = json::parse(message);
+    } catch (const json::parse_error &e) {
+        std::cerr << "Failed to parse HELLO: " << e.what() << '\n';
+
+        curl_easy_cleanup(curl);
+        return 1;
+    }
+
+    if (hello["op"] != 10) {
+        std::cerr << "Expected HELLO event\n";
+
+        curl_easy_cleanup(curl);
+        return 1;
+    }
+
+    int heartbeat_interval = hello["d"]["heartbeat_interval"];
+
+    std::cout << "Heartbeat interval: " << heartbeat_interval << " ms\n";
 
     /*
      * Send IDENTIFY (OP 2).
@@ -162,49 +192,86 @@ static int gateway_connect(const char *token)
 
     std::cout << "IDENTIFY sent\n";
 
+    int sequence = 0;
+
+    auto next_heartbeat = Clock::now() + std::chrono::milliseconds(heartbeat_interval);
+
     /*
-     * Receive Gateway events.
+     * Gateway event loop.
      */
     while (true) {
-        message.clear();
+        auto now = Clock::now();
 
-        res = recv_message(curl, sockfd, message);
+        auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(next_heartbeat - now);
 
-        if (res != CURLE_OK) {
-            std::cerr << "Gateway receive failed: " << curl_easy_strerror(res) << '\n';
+        long timeout_ms = remaining.count();
+
+        if (timeout_ms < 0) timeout_ms = 0;
+
+        int ret = wait_socket(sockfd, timeout_ms);
+
+        if (ret < 0) {
+            std::cerr << "select() failed\n";
             break;
         }
 
-        std::cout << "EVENT: " << message << '\n';
+        /*
+         * Receive Gateway event.
+         */
+        if (ret > 0) {
+            message.clear();
+
+            res = recv_message(curl, sockfd, message);
+
+            if (res != CURLE_OK) {
+                std::cerr << "Gateway receive failed: " << curl_easy_strerror(res) << '\n';
+                break;
+            }
+
+            json event;
+
+            try {
+                event = json::parse(message);
+            } catch (const json::parse_error &e) {
+                std::cerr << "Failed to parse Gateway event: " << e.what() << '\n';
+                continue;
+            }
+
+            if (event.contains("s") && !event["s"].is_null()) sequence = event["s"];
+
+            int opcode = event["op"];
+
+            if (opcode == 11) {
+                std::cout << "HEARTBEAT ACK\n";
+            } else if (opcode == 0) {
+                std::cout << "EVENT: " << event["t"] << '\n';
+            }
+        }
+
+        /*
+         * Send HEARTBEAT (OP 1).
+         */
+        now = Clock::now();
+
+        if (now >= next_heartbeat) {
+            res = send_heartbeat(curl, sequence);
+
+            if (res != CURLE_OK) {
+                std::cerr << "Failed to send HEARTBEAT: " << curl_easy_strerror(res) << '\n';
+                break;
+            }
+
+            std::cout << "HEARTBEAT sent"
+                      << " (sequence: " << sequence << ")\n";
+
+            next_heartbeat = now + std::chrono::milliseconds(heartbeat_interval);
+        }
     }
 
     curl_easy_cleanup(curl);
 
     return 0;
-}
-
-/**
- * @brief Handles data received from a libcurl request.
- *
- * Appends the received data to the string specified by the user pointer.
- *
- * @param contents Pointer to the received data.
- * @param size Size of each data element in bytes.
- * @param nmemb Number of received data elements.
- * @param userp Pointer to the destination std::string.
- *
- * @return Number of bytes successfully processed.
- */
-static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-    size_t total = size * nmemb;
-
-    std::string *response = static_cast<std::string *>(userp);
-    char        *data     = static_cast<char *>(contents);
-
-    response->append(data, total);
-
-    return total;
 }
 
 int main(void)
