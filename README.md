@@ -2,7 +2,59 @@
 
 This project is to record screen time by using discord activity.
 
+---
+
 ## Table of Contents
+
+- [Initialization](#initialization)
+- [Reference](#reference)
+- [License](#license)
+
+---
+
+## Initialization
+
+
+### Ubuntu / Debian / WSL
+
+**Install `cURL`**  
+
+```bash
+sudo apt update
+sudo apt install build-essential pkg-config libssl-dev autoconf libtool libpsl-dev
+```
+
+### macOS
+
+**Install `cURL`**  
+
+```bash
+brew install curl openssl pkg-config autoconf automake libtool libpsl
+```
+
+**Install `json` tool**  
+
+```bash
+brew install nlohmann-json
+```
+
+### Set environment variables
+
+Set environment variables.  
+
+```bash
+set -a
+source .env
+set +a
+```
+
+### Set code style
+
+```bash
+clang-format -i src/*.cpp include/*h
+```
+
+---
 
 ## Reference
 
@@ -13,67 +65,7 @@ nmemb     → 원소 개수
 userp     → 우리가 curl에게 넘겨준 변수의 주소
 ```
 
-## Initialization
-
-If you don't have curl library,  
-
-```bash
-sudo apt update
-sudo apt install build-essential pkg-config libssl-dev autoconf libtool
-```
-
-sudo apt update
-sudo apt install libpsl-dev
-
-```bash
-cd /tmp
-
-wget https://curl.se/download/curl-8.22.0.tar.gz
-tar -xzf curl-8.22.0.tar.gz
-cd curl-8.22.0
-```
-
-```bash
-./configure \
-    --prefix=/usr/local \
-    --with-openssl \
-    --enable-websockets
-```
-
-```bash
-make -j$(nproc)
-sudo make install
-```
-
-### Install dependencies
-
-#### Ubuntu / Debian / WSL
-
-```bash
-sudo apt update
-sudo apt install build-essential pkg-config libssl-dev autoconf libtool libpsl-dev
-```
-
-#### macOS
-
-```bash
-brew install curl openssl pkg-config autoconf automake libtool libpsl
-```
-
-
-Set environment variables.  
-
-```bash
-set -a
-source .env
-set +a
-```
-
-Set project code style.
-
-```bash
-clang-format -i src/*.cpp include/*h
-```
+---
 
 ## License
 
