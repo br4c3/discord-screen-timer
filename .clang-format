@@ -1,11 +1,18 @@
 BasedOnStyle: LLVM
 
+# Indentation
 IndentWidth: 4
 TabWidth: 4
 UseTab: Never
+ContinuationIndentWidth: 4
 
+# Braces
 BreakBeforeBraces: Linux
 
+# Line length
+ColumnLimit: 100
+
+# Alignment
 AlignConsecutiveAssignments:
   Enabled: true
   AcrossEmptyLines: false
@@ -16,9 +23,22 @@ AlignConsecutiveDeclarations:
   AcrossEmptyLines: false
   AcrossComments: false
 
+# Pointers / references
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+# Short statements
 AllowShortIfStatementsOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
 
-ColumnLimit: 100
+# Function calls / arguments
+BinPackArguments: false
+BinPackParameters: false
 
-PointerAlignment: Right
+# Includes
+SortIncludes: true
+
+# C++
+Standard: c++17

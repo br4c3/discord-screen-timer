@@ -45,6 +45,22 @@ make -j$(nproc)
 sudo make install
 ```
 
+### Install dependencies
+
+#### Ubuntu / Debian / WSL
+
+```bash
+sudo apt update
+sudo apt install build-essential pkg-config libssl-dev autoconf libtool libpsl-dev
+```
+
+#### macOS
+
+```bash
+brew install curl openssl pkg-config autoconf automake libtool libpsl
+```
+
+
 Set environment variables.  
 
 ```bash
