@@ -14,7 +14,6 @@ This project is to record screen time by using discord activity.
 
 ## Initialization
 
-
 ### Ubuntu / Debian / WSL
 
 **Install `cURL`**  
@@ -57,6 +56,8 @@ clang-format -i src/*.cpp include/*h
 ---
 
 ## Reference
+
+- [Discord Dev - Gateway](https://docs.discord.com/developers/events/gateway)
 
 ```text
 contents  → curl이 방금 받은 데이터의 주소
