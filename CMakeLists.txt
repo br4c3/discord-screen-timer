@@ -7,11 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 add_executable(discord-screen-timer
     src/main.cpp
     src/gateway.cpp
     src/activity.cpp
+    src/database.cpp
 )
 
 target_include_directories(discord-screen-timer PRIVATE
@@ -21,4 +23,5 @@ target_include_directories(discord-screen-timer PRIVATE
 target_link_libraries(discord-screen-timer PRIVATE
     CURL::libcurl
     nlohmann_json::nlohmann_json
+    SQLite::SQLite3
 )

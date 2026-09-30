@@ -3,6 +3,7 @@
 
 #include <curl/curl.h>
 
+#include "database.h"
 #include "gateway.h"
 
 int main(void)
@@ -23,10 +24,16 @@ int main(void)
         return 1;
     }
 
+    if (database_init("screen-time.db") < 0) {
+        curl_global_cleanup();
+        return 1;
+    }
+
     int ret;
 
     ret = gateway_connect(token);
 
+    database_close();
     curl_global_cleanup();
 
     return ret;
