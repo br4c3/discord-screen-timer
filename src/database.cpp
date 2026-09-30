@@ -81,6 +81,8 @@ int database_insert_activity(const std::string &user_id,
     return 0;
 }
 
+int database_get_screen_time(const std::string &user_id, std::vector<struct activity_summary> &result)
+
 void database_close(void)
 {
     if (!db) return;
