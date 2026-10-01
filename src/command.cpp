@@ -104,9 +104,8 @@ void command_handle_message(const json &data, const char *token)
     std::cout << message << '\n';
 
     /*
-     * TODO:
-     * discord_send_message(channel_id, message);
-     */
+    * 디스코드에 메시지 보내기
+    */
     if (discord_send_message(token, channel_id, message) < 0) {
         std::cerr << "Failed to respond to !st\n";
     }

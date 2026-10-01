@@ -1,3 +1,7 @@
+#include "gateway.h"
+#include "activity.h"
+#include "command.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -8,10 +12,6 @@
 #include <nlohmann/json.hpp>
 
 #include <sys/select.h>
-
-#include "activity.h"
-#include "command.h"
-#include "gateway.h"
 
 using json  = nlohmann::json;
 using Clock = std::chrono::steady_clock;
@@ -159,7 +159,8 @@ static int gateway_handle_hello(const json &event, struct gateway_state *state)
     return 0;
 }
 
-static void gateway_handle_dispatch(const json &event, struct gateway_state *state, const char *token)
+static void
+gateway_handle_dispatch(const json &event, struct gateway_state *state, const char *token)
 {
     if (event.contains("s") && !event["s"].is_null()) state->sequence = event["s"];
 

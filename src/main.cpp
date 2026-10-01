@@ -1,10 +1,10 @@
+#include "database.h"
+#include "gateway.h"
+
 #include <cstdlib>
 #include <iostream>
 
 #include <curl/curl.h>
-
-#include "database.h"
-#include "gateway.h"
 
 int main(void)
 {

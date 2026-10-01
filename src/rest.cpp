@@ -8,27 +8,23 @@
 
 using json = nlohmann::json;
 
-int discord_send_message(const char *token,
+int discord_send_message(const char        *token,
                          const std::string &channel_id,
                          const std::string &content)
 {
-    CURL *curl;
-    CURLcode res;
+    CURL              *curl;
+    CURLcode           res;
     struct curl_slist *headers;
-    long status;
+    long               status;
 
-    curl = curl_easy_init();
+    curl    = curl_easy_init();
     headers = nullptr;
-    status = 0;
+    status  = 0;
 
-    if (!curl)
-        return -1;
+    if (!curl) return -1;
 
-    std::string url = 
-        "https://discord.com/api/v10/channels/" +
-        channel_id +
-        "/messages";
-    
+    std::string url = "https://discord.com/api/v10/channels/" + channel_id + "/messages";
+
     std::string authorization = "Authorization: Bot " + std::string(token);
 
     json payload = {
@@ -51,11 +47,9 @@ int discord_send_message(const char *token,
     curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, body.size());
 
     res = curl_easy_perform(curl);
-    
+
     if (res != CURLE_OK) {
-        std::cerr << "Failed to send message: "
-                  << curl_easy_strerror(res) << '\n';
-        
+        std::cerr << "Failed to send message: " << curl_easy_strerror(res) << '\n';
         goto cleanup;
     }
 
@@ -67,9 +61,8 @@ int discord_send_message(const char *token,
     }
 
     if (status < 200 || status >= 300) {
-        std::cerr << "Discord API returned HTTP "
-                  << status << '\n';
-        
+        std::cerr << "Discord API returned HTTP " << status << '\n';
+
         res = CURLE_HTTP_RETURNED_ERROR;
         goto cleanup;
     }
