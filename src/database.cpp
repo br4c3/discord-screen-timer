@@ -10,6 +10,7 @@ static const char *CREATE_ACTIVITY_TABLE = "CREATE TABLE IF NOT EXISTS activity_
                                            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                                            "user_id TEXT NOT NULL,"
                                            "activity TEXT NOT NULL,"
+                                           "date TEXT NOT NULL,"
                                            "started_at INTEGER NOT NULL,"
                                            "ended_at INTEGER NOT NULL,"
                                            "duration INTEGER NOT NULL"
@@ -82,13 +83,30 @@ int database_insert_activity(const std::string &user_id,
 }
 
 int database_get_screen_time(const std::string                    &user_id,
+                             std::int64_t                          day_start,
+                             std::int64_t                          day_end,
                              std::vector<struct activity_summary> &result)
 {
-    static const char *sql = "SELECT activity, SUM(duration) "
+    /*
+     * 시작: 2026-09-30 23:50
+     * 종료: 2026-10-01 00:20
+     * 이런 경우 예외처리를 위해서, 겹치는 시간을 계산
+     * started_at < day_end
+     * AND ended_at > day_start
+     *
+     * 오늘 해당하는 부분만 계산
+     * MIN(ended_at, day_end)
+     * -
+     * MAX(started_at, day_start)
+     */
+    static const char *sql = "SELECT activity, "
+                             "SUM(MIN(ended_at, ?) - MAX(started_at, ?)) "
                              "FROM activity_log "
                              "WHERE user_id = ? "
+                             "AND started_at < ? "
+                             "AND ended_at > ? "
                              "GROUP BY activity "
-                             "ORDER BY SUM(duration) DESC;";
+                             "ORDER BY SUM(MIN(ended_at, ?) - MAX(started_at, ?)) DESC;";
 
     sqlite3_stmt *stmt;
     int           ret;
@@ -100,6 +118,12 @@ int database_get_screen_time(const std::string                    &user_id,
     if (ret != SQLITE_OK) return -1;
 
     sqlite3_bind_text(stmt, 1, user_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 2, day_start);
+    sqlite3_bind_text(stmt, 3, user_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, day_end);
+    sqlite3_bind_int64(stmt, 5, day_start);
+    sqlite3_bind_int64(stmt, 6, day_end);
+    sqlite3_bind_int64(stmt, 7, day_start);
 
     while ((ret = sqlite3_step(stmt)) == SQLITE_ROW) {
         struct activity_summary summary;

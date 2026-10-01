@@ -2,8 +2,8 @@
 #define DATABASE_H
 
 #include <cstdint>
-#include <vector>
 #include <string>
+#include <vector>
 
 int database_init(const char *path);
 
@@ -19,6 +19,8 @@ struct activity_summary {
 };
 
 int database_get_screen_time(const std::string                    &user_id,
+                             std::int64_t                          day_start,
+                             std::int64_t                          day_end,
                              std::vector<struct activity_summary> &result);
 
 void database_close(void);
