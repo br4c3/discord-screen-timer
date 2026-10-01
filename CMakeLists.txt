@@ -14,6 +14,7 @@ add_executable(discord-screen-timer
     src/gateway.cpp
     src/activity.cpp
     src/database.cpp
+    src/command.cpp
 )
 
 target_include_directories(discord-screen-timer PRIVATE

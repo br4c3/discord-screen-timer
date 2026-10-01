@@ -81,7 +81,39 @@ int database_insert_activity(const std::string &user_id,
     return 0;
 }
 
-int database_get_screen_time(const std::string &user_id, std::vector<struct activity_summary> &result)
+int database_get_screen_time(const std::string                    &user_id,
+                             std::vector<struct activity_summary> &result)
+{
+    static const char *sql = "SELECT activity, SUM(duration) "
+                             "FROM activity_log "
+                             "WHERE user_id = ? "
+                             "GROUP BY activity "
+                             "ORDER BY SUM(duration) DESC;";
+
+    sqlite3_stmt *stmt;
+    int           ret;
+
+    if (!db) return -1;
+
+    ret = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+
+    if (ret != SQLITE_OK) return -1;
+
+    sqlite3_bind_text(stmt, 1, user_id.c_str(), -1, SQLITE_TRANSIENT);
+
+    while ((ret = sqlite3_step(stmt)) == SQLITE_ROW) {
+        struct activity_summary summary;
+
+        summary.activity = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 0));
+        summary.duration = sqlite3_column_int64(stmt, 1);
+
+        result.push_back(summary);
+    }
+
+    sqlite3_finalize(stmt);
+
+    return ret == SQLITE_DONE ? 0 : -1;
+}
 
 void database_close(void)
 {

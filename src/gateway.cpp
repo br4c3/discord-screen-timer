@@ -10,6 +10,7 @@
 #include <sys/select.h>
 
 #include "activity.h"
+#include "command.h"
 #include "gateway.h"
 
 using json  = nlohmann::json;
@@ -173,9 +174,10 @@ static void gateway_handle_dispatch(const json &event, struct gateway_state *sta
 
         if (data.contains("resume_gateway_url"))
             state->resume_gateway_url = data["resume_gateway_url"];
-    }
-    if (type == "PRESENCE_UPDATE") {
+    } else if (type == "PRESENCE_UPDATE") {
         activity_handle_presence(event["d"]);
+    } else if (type == "MESSAGE_CREATE") {
+        command_handle_message(event["d"]);
     }
 
     std::cout << "EVENT: " << type << '\n';
