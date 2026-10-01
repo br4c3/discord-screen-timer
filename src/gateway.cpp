@@ -159,7 +159,7 @@ static int gateway_handle_hello(const json &event, struct gateway_state *state)
     return 0;
 }
 
-static void gateway_handle_dispatch(const json &event, struct gateway_state *state)
+static void gateway_handle_dispatch(const json &event, struct gateway_state *state, const char *token)
 {
     if (event.contains("s") && !event["s"].is_null()) state->sequence = event["s"];
 
@@ -177,7 +177,7 @@ static void gateway_handle_dispatch(const json &event, struct gateway_state *sta
     } else if (type == "PRESENCE_UPDATE") {
         activity_handle_presence(event["d"]);
     } else if (type == "MESSAGE_CREATE") {
-        command_handle_message(event["d"]);
+        command_handle_message(event["d"], token);
     }
 
     std::cout << "EVENT: " << type << '\n';
@@ -338,7 +338,7 @@ int gateway_connect(const char *token)
 
             switch (opcode) {
             case GATEWAY_OP_DISPATCH:
-                gateway_handle_dispatch(event, &state);
+                gateway_handle_dispatch(event, &state, token);
                 break;
 
             case GATEWAY_OP_HEARTBEAT:

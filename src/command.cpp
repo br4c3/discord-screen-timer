@@ -1,5 +1,6 @@
 #include "command.h"
 #include "database.h"
+#include "rest.h"
 
 #include <chrono>
 #include <cstdint>
@@ -57,7 +58,7 @@ static std::string format_duration(std::int64_t seconds)
     return std::to_string(minutes) + "m";
 }
 
-void command_handle_message(const json &data)
+void command_handle_message(const json &data, const char *token)
 {
     if (!data.contains("content") || !data.contains("author") || !data.contains("channel_id"))
         return;
@@ -106,4 +107,7 @@ void command_handle_message(const json &data)
      * TODO:
      * discord_send_message(channel_id, message);
      */
+    if (discord_send_message(token, channel_id, message) < 0) {
+        std::cerr << "Failed to respond to !st\n";
+    }
 }
