@@ -213,7 +213,6 @@ int gateway_connect(const char *token)
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, "wss://gateway.discord.gg/?v=10&encoding=json");
-
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
 
     res = curl_easy_perform(curl);
