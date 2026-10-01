@@ -350,7 +350,7 @@ int gateway_connect(const char *token)
                     goto cleanup;
                 }
 
-                state.heartbeat_ack = false;
+                // state.heartbeat_ack = false;
 
                 std::cout << "HEARTBEAT sent (requested)\n";
                 break;
