@@ -1,11 +1,49 @@
 #include "command.h"
 #include "database.h"
 
+#include <chrono>
+#include <cstdint>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
 
 using json = nlohmann::json;
+
+static int get_today_range(std::int64_t *day_start, std::int64_t *day_end)
+{
+    std::time_t now;
+
+    now = std::time(nullptr);
+
+    struct tm local;
+
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
+    std::cout << "current time: " << now << '\n';
+
+    local.tm_hour = 0;
+    local.tm_min  = 0;
+    local.tm_sec  = 0;
+
+    std::time_t start;
+    start = std::mktime(&local);
+    if (start == -1) return -1;
+
+    local.tm_mday += 1;
+
+    std::time_t end;
+    end = std::mktime(&local);
+    if (end == -1) return -1;
+
+    *day_start = static_cast<std::int64_t>(start);
+    *day_end   = static_cast<std::int64_t>(end);
+
+    return 0;
+}
 
 static std::string format_duration(std::int64_t seconds)
 {
@@ -33,14 +71,22 @@ void command_handle_message(const json &data)
     std::string user_id    = data["author"]["id"];
     std::string channel_id = data["channel_id"];
 
+    std::int64_t day_start;
+    std::int64_t day_end;
+
+    if (get_today_range(&day_start, &day_end) < 0) {
+        std::cerr << "Failed to get today's time range\n";
+        return;
+    }
+
     std::vector<struct activity_summary> result;
 
-    if (database_get_screen_time(user_id, result) < 0) {
+    if (database_get_screen_time(user_id, day_start, day_end, result) < 0) {
         std::cerr << "Failed to get screen time\n";
         return;
     }
 
-    std::string  message = "**Screen Time**\n\n";
+    std::string  message = "**Today's Screen Time**\n\n";
     std::int64_t total   = 0;
 
     for (const auto &item : result) {
@@ -57,7 +103,7 @@ void command_handle_message(const json &data)
     std::cout << message << '\n';
 
     /*
-     * Next:
+     * TODO:
      * discord_send_message(channel_id, message);
      */
 }

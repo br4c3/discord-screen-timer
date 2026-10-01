@@ -1,7 +1,7 @@
 #include "database.h"
 
+#include <ctime>
 #include <iostream>
-
 #include <sqlite3.h>
 
 static sqlite3 *db = nullptr;
@@ -42,6 +42,24 @@ int database_init(const char *path)
     return 0;
 }
 
+static std::string timestamp_to_date(std::int64_t timestamp)
+{
+    std::time_t time = static_cast<std::time_t>(timestamp);
+    struct tm   local;
+
+#ifdef _WIN32
+    localtime_s(&local, &time);
+#else
+    localtime_r(&time, &local);
+#endif
+
+    char buffer[11];
+
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &local);
+
+    return buffer;
+}
+
 int database_insert_activity(const std::string &user_id,
                              const std::string &activity,
                              std::int64_t       started_at,
@@ -49,13 +67,15 @@ int database_insert_activity(const std::string &user_id,
                              std::int64_t       duration)
 {
     static const char *sql = "INSERT INTO activity_log "
-                             "(user_id, activity, started_at, ended_at, duration) "
-                             "VALUES (?, ?, ?, ?, ?);";
+                             "(user_id, activity, date, started_at, ended_at, duration) "
+                             "VALUES (?, ?, ?, ?, ?, ?);";
 
     sqlite3_stmt *stmt;
     int           ret;
 
     if (!db) return -1;
+
+    std::string date = timestamp_to_date(started_at);
 
     ret = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
 
@@ -66,9 +86,10 @@ int database_insert_activity(const std::string &user_id,
 
     sqlite3_bind_text(stmt, 1, user_id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, activity.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 3, started_at);
-    sqlite3_bind_int64(stmt, 4, ended_at);
-    sqlite3_bind_int64(stmt, 5, duration);
+    sqlite3_bind_text(stmt, 3, date.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, started_at);
+    sqlite3_bind_int64(stmt, 5, ended_at);
+    sqlite3_bind_int64(stmt, 6, duration);
 
     ret = sqlite3_step(stmt);
 
@@ -117,7 +138,7 @@ int database_get_screen_time(const std::string                    &user_id,
 
     if (ret != SQLITE_OK) return -1;
 
-    sqlite3_bind_text(stmt, 1, user_id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 1, day_end);
     sqlite3_bind_int64(stmt, 2, day_start);
     sqlite3_bind_text(stmt, 3, user_id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 4, day_end);
